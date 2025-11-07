@@ -28,5 +28,5 @@
               context: .
               push: true
               tags: |
-                ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:latest 
+                ${{ secrets.DOCKER_USERNAME }}docker buildx build -t ajaykumar/mydevopsapp:latest . 
                 ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:${{ github.sha }} 
