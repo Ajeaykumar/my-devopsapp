@@ -14,7 +14,7 @@
     EXPOSE 5000
 
     # Define environment variable
-    ENV NAME HelloDevOps
+    ENV NAME=HelloDevOps
 
     # Run app.py when the container launches
     CMD ["python", "app.py"]
