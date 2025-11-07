@@ -17,4 +17,4 @@
     ENV NAME HelloDevOps
 
     # Run app.py when the container launches
-    CMD ["python", "webapp.py"]
+    CMD ["python", "app.py"]
