@@ -30,3 +30,121 @@
               tags: |
                 ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:latest 
                 ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:${{ github.sha }} 
+
+
+ name: Full CI/CD with AWS, Terraform, Ansible, Prometheus, Grafana
+
+    on:
+      push:
+        branches:
+          - main
+
+    env:
+      DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/my-devops-app # Define image name once
+
+    jobs:
+      build-and-push-docker:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v4
+
+          - name: Set up Docker Buildx
+            uses: docker/setup-buildx-action@v3
+
+          - name: Log in to Docker Hub
+            uses: docker/login-action@v3
+            with:
+              username: ${{ secrets.DOCKER_USERNAME }}
+              password: ${{ secrets.DOCKER_PASSWORD }}
+
+          - name: Build and push Docker image
+            uses: docker/build-push-action@v5
+            with:
+              context: .
+              push: true
+              tags: |
+                ${{ env.DOCKER_IMAGE_NAME }}:latest
+                ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+
+      deploy-to-aws:
+        needs: build-and-push-docker # This job depends on the Docker build job succeeding
+        runs-on: ubuntu-latest
+        permissions:
+          id-token: write # Required for OIDC authentication with AWS
+          contents: read
+        env:
+          AWS_REGION: us-east-1 # Or your chosen region
+          TF_VAR_public_key_path: /home/runner/.ssh/id_rsa.pub # Path on the GitHub Actions runner
+
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v4
+
+          - name: Configure AWS Credentials
+            uses: aws-actions/configure-aws-credentials@v4
+            with:
+              role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }} # ARN of the IAM Role created in Part 1
+              aws-region: ${{ env.AWS_REGION }}
+
+          - name: Set up Terraform
+            uses: hashicorp/setup-terraform@v3
+            with:
+              terraform_version: 1.6.0 # Specify a recent version
+
+          - name: Create SSH key file for Ansible
+            run: |
+              mkdir -p /home/runner/.ssh
+              echo "${{ secrets.SSH_PRIVATE_KEY }}" > /home/runner/.ssh/id_rsa
+              chmod 600 /home/runner/.ssh/id_rsa
+              # Also create a dummy public key for Terraform's public_key_path variable
+              ssh-keygen -y -f /home/runner/.ssh/id_rsa > /home/runner/.ssh/id_rsa.pub
+
+          - name: Terraform Init
+            run: terraform init
+            working-directory: terraform/
+
+          - name: Terraform Apply
+            id: terraform_apply # Assign an ID to this step to access its outputs
+            run: terraform apply -auto-approve -input=false -var="public_key_path=${{ env.TF_VAR_public_key_path }}"
+            working-directory: terraform/
+
+          - name: Get EC2 Instance Public IP
+            id: get_ip
+            run: echo "EC2_PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
+            working-directory: terraform/
+
+          - name: Add EC2 instance to Ansible inventory
+            run: |
+              mkdir -p ansible/
+              cat <<EOF > ansible/inventory.ini
+              [web_servers]
+              app_instance ansible_host=${{ env.EC2_PUBLIC_IP }} ansible_user=ubuntu ansible_ssh_private_key_file=/home/runner/.ssh/id_rsa
+
+              [all:vars]
+              ansible_python_interpreter=/usr/bin/python3
+              EOF
+            # The DOCKER_USERNAME is needed for the Ansible `app` role
+            env:
+              DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+
+          - name: Run Ansible Playbook
+            uses: dawidd6/action-ansible-playbook@v2 # Action to run Ansible playbook
+            with:
+              playbook: ansible/playbooks/deploy_app_and_monitor.yml
+              directory: ansible/
+              key_file: /home/runner/.ssh/id_rsa # Path to the SSH private key on the runner
+              options: |
+                --inventory ./inventory.ini
+                --verbose
+            env: # Pass Docker Hub username as an environment variable to Ansible
+              DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+          - name: Print Application URL and Monitoring URLs
+            run: |
+              echo "------------------------------------------------------------------"
+              echo "Application URL: http://${{ env.EC2_PUBLIC_IP }}:5000"
+              echo "Prometheus UI:   http://${{ env.EC2_PUBLIC_IP }}:9090"
+              echo "Grafana UI:      http://${{ env.EC2_PUBLIC_IP }}:3000"
+              echo "------------------------------------------------------------------"
