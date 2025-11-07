@@ -27,6 +27,6 @@
             with:
               context: .
               push: true
-              tags: |
-                ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:latest # Tag as latest
-                ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:${{ github.sha }} # Tag with Git SHA for versioning
+              #tags: |
+               # ${{ secrets.DOCKER_USERNAME }}/mydevopsapp:latest # Tag as latest
+                #${{ secrets.DOCKER_USERNAME }}/mydevopsapp:${{ github.sha }} # Tag with Git SHA for versioning
