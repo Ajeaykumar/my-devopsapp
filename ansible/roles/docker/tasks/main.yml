@@ -1,0 +1,46 @@
+ - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install apt-transport-https and ca-certificates
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg-agent
+        - software-properties-common
+
+    - name: Add Docker GPG apt key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker apt repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+
+    - name: Add 'ubuntu' user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Restart Docker service
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes

@@ -1,0 +1,9 @@
+ - name: Configure and deploy application with monitoring
+      hosts: web_servers
+      become: yes # Run tasks with sudo/root privileges
+
+      roles:
+        - docker
+        - app
+        - prometheus
+        - grafana

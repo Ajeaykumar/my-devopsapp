@@ -1,0 +1,25 @@
+- name: Ensure /app directory exists
+      file:
+        path: /home/ubuntu/app
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Pull Docker image from Docker Hub
+      community.docker.containers.docker_image:
+        name: "{{ lookup('env', 'DOCKER_USERNAME') }}/my-devops-app" # Uses Docker Hub username from env var
+        tag: latest
+        source: pull
+        state: present
+
+    - name: Run Flask application container
+      community.docker.containers.docker_container:
+        name: my-flask-app
+        image: "{{ lookup('env', 'DOCKER_USERNAME') }}/my-devops-app:latest"
+        ports:
+          - "5000:5000"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "5000:5000"

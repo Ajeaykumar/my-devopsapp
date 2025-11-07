@@ -1,0 +1,134 @@
+- name: Create Prometheus user
+      user:
+        name: prometheus
+        system: yes
+        create_home: no
+        shell: /bin/false
+
+    - name: Create Prometheus directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: prometheus
+        group: prometheus
+        mode: '0755'
+      loop:
+        - /etc/prometheus
+        - /var/lib/prometheus
+
+    - name: Download Prometheus
+      unarchive:
+        src: https://github.com/prometheus/prometheus/releases/download/v2.47.0/prometheus-2.47.0.linux-amd64.tar.gz
+        dest: /tmp
+        remote_src: yes
+        creates: /tmp/prometheus-2.47.0.linux-amd64/prometheus
+
+    - name: Copy Prometheus binaries
+      copy:
+        src: "/tmp/prometheus-2.47.0.linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        owner: prometheus
+        group: prometheus
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - prometheus
+        - promtool
+
+    - name: Copy Prometheus console libraries
+      copy:
+        src: "/tmp/prometheus-2.47.0.linux-amd64/{{ item }}/"
+        dest: "/etc/prometheus/{{ item }}"
+        owner: prometheus
+        group: prometheus
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - consoles
+        - console_libraries
+
+    - name: Configure Prometheus (prometheus.yml)
+      template:
+        src: prometheus.yml.j2
+        dest: /etc/prometheus/prometheus.yml
+        owner: prometheus
+        group: prometheus
+        mode: '0644'
+
+    - name: Install Node Exporter
+      unarchive:
+        src: https://github.com/prometheus/node_exporter/releases/download/v1.6.1/node_exporter-1.6.1.linux-amd64.tar.gz
+        dest: /tmp
+        remote_src: yes
+        creates: /tmp/node_exporter-1.6.1.linux-amd64/node_exporter
+
+    - name: Copy Node Exporter binary
+      copy:
+        src: /tmp/node_exporter-1.6.1.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        owner: prometheus # can be root or prometheus
+        group: prometheus
+        mode: '0755'
+        remote_src: yes
+
+    - name: Setup Node Exporter systemd service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User=prometheus
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart node_exporter
+
+    - name: Setup Prometheus systemd service
+      copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description=Prometheus
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User=prometheus
+          Group=prometheus
+          ExecStart=/usr/local/bin/prometheus \
+            --config.file /etc/prometheus/prometheus.yml \
+            --storage.tsdb.path /var/lib/prometheus \
+            --web.external-url http://{{ ansible_facts.default_ipv4.address }}:9090 \
+            --web.enable-lifecycle
+          Restart=always
+          ExecReload=/bin/kill -HUP $MAINPID
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart prometheus
+
+    - name: Reload systemd and start services
+      systemd:
+        daemon_reload: yes
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - prometheus
+        - node_exporter
+
+    - name: Clean up temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/prometheus-2.47.0.linux-amd64.tar.gz
+        - /tmp/prometheus-2.47.0.linux-amd64
+        - /tmp/node_exporter-1.6.1.linux-amd64.tar.gz
+        - /tmp/node_exporter-1.6.1.linux-amd64
